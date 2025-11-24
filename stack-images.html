@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Stack Images Vertically → PNG</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; max-width: 900px; margin: 28px auto; padding: 0 18px; color: #111; }
+    h1 { font-size: 20px; margin-bottom: 6px; }
+    p { margin-top: 0; color: #444; }
+    .controls { display:flex; gap:10px; margin: 14px 0; flex-wrap:wrap; }
+    .btn { padding: 8px 12px; border-radius: 6px; border: 1px solid #bbb; background:#f6f6f6; cursor:pointer; }
+    .btn.primary { background:#2563eb; color:white; border-color: #1f4fc6; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    #fileList { margin-top: 12px; display:flex; flex-direction:column; gap:8px; }
+    .file-row { display:flex; gap:10px; align-items:center; padding:8px; border-radius:8px; border:1px solid #eee; background: #fafafa; }
+    .thumb { width:64px; height:64px; object-fit:contain; background:#fff; border:1px solid #ddd; border-radius:6px; }
+    .meta { flex:1; min-width: 0; }
+    .meta .name { font-weight:600; font-size:13px; color:#222 }
+    .meta .dim { font-size:12px; color:#666; margin-top:4px; }
+    .order-controls { display:flex; gap:6px; align-items:center; }
+    canvas { display:block; margin-top:16px; border:1px solid #ddd; max-width:100%; }
+    #notice { margin-top:8px; color:#666; font-size:13px; }
+  </style>
+</head>
+<body>
+  <h1>Stack Images Vertically → PNG</h1>
+  <p>Select several images, reorder if you want, then click <strong>Build Canvas</strong>. The canvas height will be the sum of all images' heights. Click <strong>Download PNG</strong> to save.</p>
+
+  <div class="controls">
+    <label class="btn">
+      Choose images
+      <input id="fileInput" type="file" accept="image/*" multiple style="display:none" />
+    </label>
+
+    <button id="buildBtn" class="btn primary" disabled>Build Canvas</button>
+    <button id="downloadBtn" class="btn" disabled>Download PNG</button>
+    <button id="clearBtn" class="btn">Clear</button>
+  </div>
+
+  <div id="notice">Tip: use the Up / Down buttons to change order before building.</div>
+
+  <div id="fileList" aria-live="polite"></div>
+
+  <canvas id="stackCanvas" style="display:none"></canvas>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const fileListEl = document.getElementById('fileList');
+    const buildBtn = document.getElementById('buildBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const canvas = document.getElementById('stackCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let files = []; // { file, url, name }
+
+    function resetCanvasDisplay() {
+      canvas.style.display = 'none';
+      downloadBtn.disabled = true;
+    }
+
+    function enableBuildIfFiles() {
+      buildBtn.disabled = files.length === 0;
+    }
+
+    function renderFileList() {
+      fileListEl.innerHTML = '';
+      files.forEach((item, idx) => {
+        const row = document.createElement('div');
+        row.className = 'file-row';
+
+        const img = document.createElement('img');
+        img.className = 'thumb';
+        img.src = item.url;
+        img.alt = item.file.name;
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = item.file.name;
+        const dim = document.createElement('div');
+        dim.className = 'dim';
+        dim.textContent = item.width && item.height ? `${item.width} × ${item.height} px` : 'Not loaded yet';
+
+        meta.appendChild(name);
+        meta.appendChild(dim);
+
+        const orderControls = document.createElement('div');
+        orderControls.className = 'order-controls';
+
+        const up = document.createElement('button');
+        up.className = 'btn';
+        up.textContent = '↑';
+        up.title = 'Move up';
+        up.disabled = idx === 0;
+        up.onclick = () => { if (idx > 0) { swapFiles(idx, idx - 1); } };
+
+        const down = document.createElement('button');
+        down.className = 'btn';
+        down.textContent = '↓';
+        down.title = 'Move down';
+        down.disabled = idx === files.length - 1;
+        down.onclick = () => { if (idx < files.length - 1) { swapFiles(idx, idx + 1); } };
+
+        const remove = document.createElement('button');
+        remove.className = 'btn';
+        remove.textContent = 'Remove';
+        remove.onclick = () => { removeFile(idx); };
+
+        orderControls.appendChild(up);
+        orderControls.appendChild(down);
+        orderControls.appendChild(remove);
+
+        row.appendChild(img);
+        row.appendChild(meta);
+        row.appendChild(orderControls);
+
+        fileListEl.appendChild(row);
+      });
+    }
+
+    function swapFiles(a, b) {
+      const t = files[a];
+      files[a] = files[b];
+      files[b] = t;
+      renderFileList();
+      resetCanvasDisplay();
+    }
+
+    function removeFile(index) {
+      URL.revokeObjectURL(files[index].url);
+      files.splice(index, 1);
+      renderFileList();
+      enableBuildIfFiles();
+      resetCanvasDisplay();
+    }
+
+    fileInput.addEventListener('change', (ev) => {
+      const incoming = Array.from(ev.target.files || []);
+      // preserve selection order as provided by input
+      incoming.forEach(f => {
+        const url = URL.createObjectURL(f);
+        files.push({ file: f, url, width: null, height: null });
+      });
+      renderFileList();
+      enableBuildIfFiles();
+      resetCanvasDisplay();
+      // clear the input so selecting the same files again still triggers change
+      fileInput.value = '';
+    });
+
+    clearBtn.addEventListener('click', () => {
+      files.forEach(f => URL.revokeObjectURL(f.url));
+      files = [];
+      renderFileList();
+      resetCanvasDisplay();
+      enableBuildIfFiles();
+    });
+
+    buildBtn.addEventListener('click', async () => {
+      if (files.length === 0) return;
+      buildBtn.disabled = true;
+      downloadBtn.disabled = true;
+
+      try {
+        // Load images and measure sizes
+        const imgs = await Promise.all(files.map((item, idx) => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+              // store dimensions for UI
+              files[idx].width = img.width;
+              files[idx].height = img.height;
+              resolve({ img, width: img.width, height: img.height });
+            };
+            img.onerror = (e) => reject(new Error('Failed to load image: ' + item.file.name));
+            img.src = item.url;
+          });
+        }));
+
+        // update dimensions in list
+        renderFileList();
+
+        const totalHeight = imgs.reduce((s, v) => s + v.height, 0);
+        const maxWidth = imgs.reduce((m, v) => Math.max(m, v.width), 0);
+
+        // Safety: if extremely large, warn and limit (optional)
+        const MAX_PIXELS = 10000 * 10000; // 100MP, very large; browsers may fail earlier
+        if (maxWidth * totalHeight > MAX_PIXELS) {
+          if (!confirm('The resulting image is very large and may crash your browser. Continue?')) {
+            buildBtn.disabled = false;
+            return;
+          }
+        }
+
+        // Set canvas size
+        canvas.width = maxWidth;
+        canvas.height = totalHeight;
+        // Clear canvas (transparent)
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw images stacked top to bottom, center horizontally
+        let y = 0;
+        for (const { img, width, height } of imgs) {
+          const x = Math.round((maxWidth - width) / 2);
+          ctx.drawImage(img, x, y, width, height);
+          y += height;
+        }
+
+        // Show canvas
+        canvas.style.display = 'block';
+        // Scroll to canvas
+        canvas.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        downloadBtn.disabled = false;
+      } catch (err) {
+        alert('Error building canvas: ' + (err && err.message ? err.message : err));
+      } finally {
+        buildBtn.disabled = false;
+      }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      if (canvas.width === 0 || canvas.height === 0) return;
+      const link = document.createElement('a');
+      // get PNG with alpha preserved
+      canvas.toBlob((blob) => {
+        const u = URL.createObjectURL(blob);
+        link.href = u;
+        link.download = 'stacked-images.png';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(u), 2000);
+      }, 'image/png');
+    });
+
+    // initial state
+    enableBuildIfFiles();
+    resetCanvasDisplay();
+  </script>
+</body>
+</html>
